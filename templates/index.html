@@ -109,9 +109,10 @@
   <div class="card-header">
     <div>
       <div class="card-title">Mis playlists</div>
-      <div class="card-subtitle">Playlists convertidas a formato Nuclear Player (JSON).</div>
+      <div class="card-subtitle">Playlists convertidas a formato Nuclear Player v1 (JSON).</div>
     </div>
     <div class="flex gap-1">
+      <button class="btn btn-ghost btn-sm" onclick="migrateAllToV1()" title="Convierte todas las playlists en formato legacy al formato Nuclear v1 nativo">🔄 Migrar a v1</button>
       <button class="btn btn-ghost btn-sm" onclick="loadPlaylists()">↻ Recargar</button>
     </div>
   </div>

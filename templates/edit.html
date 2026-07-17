@@ -28,10 +28,16 @@
     <div class="field">
       <label>Duración (segundos)</label>
       <input class="input" id="new-track-duration" type="number" min="0" placeholder="354">
+      <small class="text-dim">Se convertirá a milisegundos automáticamente.</small>
+    </div>
+    <div class="field">
+      <label>Spotify Track ID (opcional)</label>
+      <input class="input" id="new-track-spotify-id" placeholder="7tFiyTwD0nx5a1eklYtX2J">
+      <small class="text-dim">Para que Nuclear pueda reproducir la canción desde Spotify. Se aceptan ID, URI o URL.</small>
     </div>
     <div class="field">
       <label>URL de thumbnail (opcional)</label>
-      <input class="input" id="new-track-thumb" placeholder="https://...">
+      <input class="input" id="new-track-thumb" placeholder="https://i.scdn.co/image/...">
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('add-track-modal')">Cancelar</button>
@@ -47,6 +53,10 @@
     <div class="field">
       <label>Nombre de la playlist</label>
       <input class="input" id="save-name" placeholder="Mi playlist">
+    </div>
+    <div class="field">
+      <label>Descripción (opcional)</label>
+      <input class="input" id="save-description" placeholder="Descripción de la playlist">
     </div>
     <div class="field">
       <label class="checkbox">

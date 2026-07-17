@@ -1,7 +1,7 @@
-// edit.js — editor de playlist individual
+// edit.js — editor de playlist individual (formato Nuclear v1)
 let currentPlaylist = null;
 let currentFilename = window.EDITOR_FILENAME;
-let pendingDeleteUuid = null;
+let pendingDeleteIndex = null;
 
 async function loadPlaylist() {
   try {
@@ -21,24 +21,29 @@ async function loadPlaylist() {
 
 function renderEditor() {
   if (!currentPlaylist) return;
-  const tracks = currentPlaylist.tracks || [];
-  const totalDur = tracks.reduce((s, t) => s + (parseInt(t.duration, 10) || 0), 0);
+  // El API devuelve el JSON en formato Nuclear v1: {version, playlist: {name, items, ...}}
+  const playlist = currentPlaylist.playlist || {};
+  const items = getItems(currentPlaylist);
+  const totalMs = items.reduce((s, it) => s + (getDurationMs(it) || 0), 0);
+  const isV1 = currentPlaylist._is_v1 !== false;
 
   const html = `
     <div class="card">
       <div class="editor-header">
         <a href="/" class="btn btn-ghost btn-icon" title="Volver">←</a>
-        <input class="input name-input" id="playlist-name" value="${escapeHtml(currentPlaylist.name || '')}" placeholder="Nombre de la playlist">
+        <input class="input name-input" id="playlist-name" value="${escapeHtml(playlist.name || currentPlaylist.name || '')}" placeholder="Nombre de la playlist">
         <button class="btn btn-success" onclick="openSaveModal()">💾 Guardar</button>
         <button class="btn btn-primary" onclick="openModal('add-track-modal')">＋ Añadir canción</button>
         <a class="btn btn-ghost" href="/api/download/${encodeURIComponent(currentFilename)}">⬇️ Descargar</a>
       </div>
       <div class="editor-meta">
-        <span>🎵 <strong id="tracks-count">${tracks.length}</strong> canciones</span>
-        <span>🕒 Duración total: <strong>${fmtDuration(totalDur)}</strong></span>
+        <span>🎵 <strong id="tracks-count">${items.length}</strong> canciones</span>
+        <span>🕒 Duración total: <strong>${fmtDurationMs(totalMs)}</strong></span>
         <span>📄 <span class="badge">${escapeHtml(currentFilename)}</span></span>
-        ${currentPlaylist.createdAt ? `<span>📅 Creada: ${fmtDate(currentPlaylist.createdAt)}</span>` : ''}
+        ${playlist.createdAtIso ? `<span>📅 Creada: ${fmtDate(playlist.createdAtIso)}</span>` : ''}
+        <span class="badge ${isV1 ? 'badge-success' : 'badge-warning'}">${isV1 ? 'Formato v1' : 'Legacy (migrará al guardar)'}</span>
       </div>
+      ${playlist.description ? `<div class="editor-meta"><span>📝 ${escapeHtml(playlist.description)}</span></div>` : ''}
     </div>
 
     <div class="card">
@@ -51,7 +56,7 @@ function renderEditor() {
           💾 Guardar nuevo orden
         </button>
       </div>
-      ${tracks.length === 0 ? `
+      ${items.length === 0 ? `
         <div class="empty">
           <div class="icon">🎵</div>
           <h3>Playlist vacía</h3>
@@ -70,7 +75,7 @@ function renderEditor() {
             </tr>
           </thead>
           <tbody id="tracks-tbody">
-            ${tracks.map((t, i) => renderTrackRow(t, i)).join('')}
+            ${items.map((it, i) => renderItemRow(it, i)).join('')}
           </tbody>
         </table>
       `}
@@ -80,20 +85,29 @@ function renderEditor() {
   enableDragAndDrop();
 }
 
-function renderTrackRow(t, i) {
-  const artist = getArtistName(t);
+function renderItemRow(item, i) {
+  const title = getTrackTitle(item);
+  const artist = getArtistName(item.track || {});
+  const album = getAlbumTitle(item);
+  const durationMs = getDurationMs(item);
+  const itemId = getItemId(item);
+  const thumb = getThumbnail(item);
+
   return `
-    <tr data-uuid="${escapeHtml(t.uuid || '')}" draggable="true">
+    <tr data-item-id="${escapeHtml(itemId)}" data-index="${i}" draggable="true">
       <td class="track-num">${i + 1}</td>
-      <td class="track-name">${escapeHtml(t.name || '')}</td>
+      <td class="track-name">
+        ${thumb ? `<img src="${escapeHtml(thumb)}" alt="" style="width:24px;height:24px;border-radius:3px;vertical-align:middle;margin-right:6px" onerror="this.style.display='none'">` : ''}
+        ${escapeHtml(title)}
+      </td>
       <td class="track-artist">${escapeHtml(artist)}</td>
-      <td class="track-artist">${escapeHtml(t.album || '')}</td>
-      <td class="track-duration">${fmtDuration(t.duration)}</td>
+      <td class="track-artist">${escapeHtml(album)}</td>
+      <td class="track-duration">${fmtDurationMs(durationMs)}</td>
       <td class="track-actions">
         <button class="btn btn-ghost btn-icon btn-sm" title="Eliminar"
-          data-uuid="${escapeHtml(t.uuid || '')}"
-          data-name="${escapeHtml(t.name || '')}"
-          onclick="askDeleteTrack(this.dataset.uuid, this.dataset.name)">🗑️</button>
+          data-index="${i}"
+          data-name="${escapeHtml(title)}"
+          onclick="askDeleteTrack(parseInt(this.dataset.index, 10), this.dataset.name)">🗑️</button>
       </td>
     </tr>
   `;
@@ -137,6 +151,7 @@ function enableDragAndDrop() {
       // Renumerar
       tbody.querySelectorAll('tr').forEach((r, i) => {
         r.querySelector('.track-num').textContent = i + 1;
+        r.dataset.index = i;
       });
     });
   });
@@ -145,7 +160,7 @@ function enableDragAndDrop() {
 async function reorderSave() {
   const tbody = document.getElementById('tracks-tbody');
   if (!tbody) return;
-  const order = Array.from(tbody.querySelectorAll('tr')).map(r => r.dataset.uuid);
+  const order = Array.from(tbody.querySelectorAll('tr')).map(r => r.dataset.itemId);
   try {
     const data = await api(`/api/playlists/${encodeURIComponent(currentFilename)}/reorder`, {
       method: 'POST',
@@ -164,8 +179,10 @@ function submitNewTrack() {
   const name = document.getElementById('new-track-name').value.trim();
   const artist = document.getElementById('new-track-artist').value.trim();
   const album = document.getElementById('new-track-album').value.trim();
-  const duration = parseInt(document.getElementById('new-track-duration').value, 10) || 0;
+  const durationSec = parseInt(document.getElementById('new-track-duration').value, 10) || 0;
+  const durationMs = durationSec * 1000;
   const thumb = document.getElementById('new-track-thumb').value.trim();
+  const spotifyId = document.getElementById('new-track-spotify-id').value.trim();
 
   if (!name) {
     toast('El nombre de la canción es obligatorio', 'warning', 'Atención');
@@ -174,27 +191,36 @@ function submitNewTrack() {
 
   api(`/api/playlists/${encodeURIComponent(currentFilename)}/add-track`, {
     method: 'POST',
-    body: JSON.stringify({ name, artist, album, duration, thumbnail: thumb }),
+    body: JSON.stringify({
+      name,
+      artist,
+      album,
+      duration_ms: durationMs,
+      thumbnail: thumb,
+      spotify_id: spotifyId,
+    }),
   })
   .then(data => {
-    toast(`Añadida: ${data.track.name}`, 'success', 'Canción añadida');
+    const newItem = data.item || {};
+    const newTitle = (newItem.track && newItem.track.title) || name;
+    toast(`Añadida: ${newTitle}`, 'success', 'Canción añadida');
     closeModal('add-track-modal');
     // Limpiar
-    ['new-track-name','new-track-artist','new-track-album','new-track-duration','new-track-thumb']
+    ['new-track-name','new-track-artist','new-track-album','new-track-duration','new-track-thumb','new-track-spotify-id']
       .forEach(id => document.getElementById(id).value = '');
     loadPlaylist();
   })
   .catch(e => toast(e.message, 'error', 'Error'));
 }
 
-// ---- Eliminar track ----
-function askDeleteTrack(uuid, name) {
-  pendingDeleteUuid = uuid;
+// ---- Eliminar track (por index, no por uuid) ----
+function askDeleteTrack(index, name) {
+  pendingDeleteIndex = index;
   document.getElementById('confirm-delete-msg').textContent =
     `Se eliminará "${name}" de la playlist. Se creará un respaldo automáticamente.`;
   document.getElementById('confirm-delete-btn').onclick = () => {
     closeModal('confirm-delete-modal');
-    api(`/api/playlists/${encodeURIComponent(currentFilename)}/remove-track/${encodeURIComponent(uuid)}`, {
+    api(`/api/playlists/${encodeURIComponent(currentFilename)}/remove-track/${index}`, {
       method: 'DELETE',
     })
     .then(data => {
@@ -208,7 +234,9 @@ function askDeleteTrack(uuid, name) {
 
 // ---- Guardar / Guardar como ----
 function openSaveModal() {
-  document.getElementById('save-name').value = currentPlaylist.name || '';
+  const playlist = currentPlaylist.playlist || {};
+  document.getElementById('save-name').value = playlist.name || currentPlaylist.name || '';
+  document.getElementById('save-description').value = playlist.description || '';
   document.getElementById('save-as-new').checked = false;
   document.getElementById('save-new-filename').value = '';
   document.getElementById('new-filename-field').style.display = 'none';
@@ -228,6 +256,7 @@ async function confirmSave() {
     toast('El nombre es obligatorio', 'warning');
     return;
   }
+  const description = document.getElementById('save-description').value.trim();
   const saveAsNew = document.getElementById('save-as-new').checked;
   const newFilename = document.getElementById('save-new-filename').value.trim();
   const backup = document.getElementById('save-backup').checked;
@@ -237,21 +266,28 @@ async function confirmSave() {
     return;
   }
 
-  // Construir payload: solo nombre + tracks (el backend reasigna uuids/positions)
+  // Construir payload en formato Nuclear v1: enviar toda la playlist
+  // tal como está, solo actualizamos nombre y descripción.
+  const playlist = currentPlaylist.playlist || {};
   const payload = {
-    name,
-    id: currentPlaylist.id,
-    createdAt: currentPlaylist.createdAt,
-    tracks: (currentPlaylist.tracks || []).map((t, i) => ({
-      uuid: t.uuid,
-      name: t.name,
-      artist: getArtistName(t),
-      album: t.album || '',
-      duration: parseInt(t.duration, 10) || 0,
-      position: i,
-      thumbnail: t.thumbnail || '',
-      stream: t.stream || { source: '', id: '' },
-    })),
+    version: 1,
+    playlist: {
+      id: playlist.id || currentPlaylist.id,
+      name,
+      description,
+      artwork: playlist.artwork || { items: [] },
+      createdAtIso: playlist.createdAtIso || currentPlaylist.createdAt,
+      lastModifiedIso: new Date().toISOString(),
+      isReadOnly: false,
+      items: (playlist.items || getItems(currentPlaylist)).map((item, i) => {
+        // Mantener el item tal cual, pero actualizar trackNumber
+        const newItem = Object.assign({}, item);
+        if (newItem.track) {
+          newItem.track = Object.assign({}, newItem.track, { trackNumber: i + 1 });
+        }
+        return newItem;
+      }),
+    },
     save_as_new: saveAsNew,
     new_filename: newFilename,
     backup,

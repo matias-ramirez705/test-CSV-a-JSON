@@ -1,6 +1,6 @@
 """
 Aplicación Flask para gestionar playlists:
-- Convertir CSV (Exportify) a JSON (Nuclear Player)
+- Convertir CSV (Exportify) a JSON (Nuclear Player v1)
 - Editar playlists (renombrar, agregar/eliminar canciones)
 - Combinar varias playlists en una nueva
 - Guardar con respaldo automático en /backups
@@ -32,17 +32,25 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from playlist_converter import (
+    add_track_to_playlist,
     build_nuclear_playlist,
     create_backup,
+    delete_track_by_index,
+    extract_items,
+    extract_playlist_description,
+    extract_playlist_name,
+    extract_track_count,
+    is_nuclear_v1,
     list_backups,
     list_playlists_in_dir,
     load_playlist_json,
     merge_playlists,
+    normalize_to_v1,
     parse_exportify_csv,
+    rename_playlist,
     restore_backup,
     sanitize_filename,
     save_playlist_json,
-    to_nuclear_track,
 )
 
 # ---------------------------------------------------------------------------
@@ -76,18 +84,24 @@ def _playlist_path(filename: str) -> Path:
     return p
 
 
-def _format_duration(seconds: int) -> str:
-    """Formatea segundos como mm:ss o h:mm:ss."""
+def _format_duration_ms(ms: int) -> str:
+    """Formatea milisegundos como mm:ss o h:mm:ss."""
     try:
-        seconds = int(seconds)
+        ms = int(ms)
     except (ValueError, TypeError):
-        seconds = 0
+        ms = 0
+    seconds = ms // 1000
     if seconds >= 3600:
         h, rem = divmod(seconds, 3600)
         m, s = divmod(rem, 60)
         return f"{h}:{m:02d}:{s:02d}"
     m, s = divmod(seconds, 60)
     return f"{m}:{s:02d}"
+
+
+def _format_duration(seconds: int) -> str:
+    """Compat: formatea segundos como mm:ss."""
+    return _format_duration_ms(int(seconds) * 1000)
 
 
 def _find_free_port(start: int = 5000, end: int = 5010) -> int:
@@ -101,6 +115,30 @@ def _find_free_port(start: int = 5000, end: int = 5010) -> int:
             continue
     # Si todos están ocupados, dejar que Flask intente con el primero
     return start
+
+
+def _sum_duration_ms(playlist_data: Dict[str, Any]) -> int:
+    """Suma la duración total de la playlist en ms (soporta ambos formatos)."""
+    items = extract_items(playlist_data)
+    total = 0
+    for item in items:
+        track = item.get("track", {}) or {}
+        total += int(track.get("durationMs", 0) or 0)
+    return total
+
+
+def _playlist_summary(data: Dict[str, Any], filename: str) -> Dict[str, Any]:
+    """Construye un dict con metadatos para la vista de lista."""
+    total_ms = _sum_duration_ms(data)
+    return {
+        "filename": filename,
+        "name": extract_playlist_name(data),
+        "description": extract_playlist_description(data),
+        "tracks_count": extract_track_count(data),
+        "total_duration_ms": total_ms,
+        "total_duration_str": _format_duration_ms(total_ms),
+        "is_v1": is_nuclear_v1(data),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -139,23 +177,40 @@ def backups_page():
 
 @app.route("/api/playlists", methods=["GET"])
 def api_list_playlists():
-    playlists = list_playlists_in_dir(str(PLAYLISTS_DIR))
-    return jsonify({"playlists": playlists})
+    """Lista todas las playlists disponibles con metadatos."""
+    raw = list_playlists_in_dir(str(PLAYLISTS_DIR))
+    # Enriquecer con duración total y flag de formato
+    enriched = []
+    for entry in raw:
+        try:
+            data = load_playlist_json(entry["path"])
+            summary = _playlist_summary(data, entry["filename"])
+            summary["size_bytes"] = entry["size_bytes"]
+            summary["modified"] = entry["modified"]
+            enriched.append(summary)
+        except Exception:
+            enriched.append(entry)
+    return jsonify({"playlists": enriched})
 
 
 @app.route("/api/playlists/<path:filename>", methods=["GET"])
 def api_get_playlist(filename: str):
+    """Devuelve una playlist en formato Nuclear v1 (normaliza si estaba en formato viejo)."""
     try:
         p = _playlist_path(filename)
         if not p.exists():
             return jsonify({"error": "Playlist no encontrada"}), 404
         data = load_playlist_json(str(p))
-        data["_filename"] = p.name
-        data["_tracks_count"] = len(data.get("tracks", []))
-        total = sum(int(t.get("duration", 0) or 0) for t in data.get("tracks", []))
-        data["_total_duration"] = total
-        data["_total_duration_str"] = _format_duration(total)
-        return jsonify(data)
+        # Normalizar SIEMPRE a v1 antes de devolver (la UI espera v1)
+        v1 = normalize_to_v1(data)
+        # Añadir metadatos internos para la UI (con _)
+        total_ms = _sum_duration_ms(v1)
+        v1["_filename"] = p.name
+        v1["_tracks_count"] = extract_track_count(v1)
+        v1["_total_duration_ms"] = total_ms
+        v1["_total_duration_str"] = _format_duration_ms(total_ms)
+        v1["_is_v1"] = is_nuclear_v1(data)  # si el archivo original ya era v1
+        return jsonify(v1)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -169,7 +224,7 @@ def _convert_csv_file(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """
-    Convierte un CSV individual a JSON formato Nuclear.
+    Convierte un CSV individual a JSON formato Nuclear v1.
 
     Devuelve un dict con el resultado del proceso.
     """
@@ -211,7 +266,7 @@ def _convert_csv_file(
 
 @app.route("/api/upload-csv", methods=["POST"])
 def api_upload_csv():
-    """Sube uno o más CSVs y los convierte a JSON formato Nuclear."""
+    """Sube uno o más CSVs y los convierte a JSON formato Nuclear v1."""
     if "files" not in request.files:
         return jsonify({"error": "No se enviaron archivos"}), 400
 
@@ -334,12 +389,30 @@ def api_clear_uploads():
 
 
 # ---------------------------------------------------------------------------
-# API: Editar playlist
+# API: Editar playlist (formato Nuclear v1)
 # ---------------------------------------------------------------------------
 
 @app.route("/api/playlists/<path:filename>", methods=["PUT"])
 def api_update_playlist(filename: str):
-    """Actualiza una playlist completa (renombrada, tracks editados, etc.)."""
+    """
+    Actualiza una playlist completa (renombrada, tracks editados, etc.).
+
+    Acepta el payload en formato Nuclear v1. Si la playlist original estaba en
+    formato viejo, se normaliza a v1 antes de fusionar los cambios.
+
+    Body (JSON):
+        {
+            "version": 1,
+            "playlist": {
+                "name": "...",
+                "description": "...",
+                "items": [...]
+            },
+            "save_as_new": false,        // opcional
+            "new_filename": "...",        // opcional, sólo si save_as_new=true
+            "backup": true                // opcional, default true
+        }
+    """
     try:
         p = _playlist_path(filename)
         if not p.exists():
@@ -349,48 +422,15 @@ def api_update_playlist(filename: str):
         if not isinstance(data, dict):
             return jsonify({"error": "Payload inválido"}), 400
 
-        new_name = (data.get("name") or "").strip()
-        tracks = data.get("tracks", [])
+        # Normalizar a v1
+        v1 = normalize_to_v1(data)
+        # Asegurar campos obligatorios
+        if not v1["playlist"].get("name"):
+            v1["playlist"]["name"] = "Playlist sin nombre"
+
         save_as_new = bool(data.get("save_as_new", False))
         new_filename = (data.get("new_filename") or "").strip()
         do_backup = data.get("backup", True)
-
-        cleaned_tracks = []
-        for idx, t in enumerate(tracks):
-            if not isinstance(t, dict):
-                continue
-            name = (t.get("name") or "").strip()
-            if not name:
-                continue
-            artist = t.get("artist", "")
-            if isinstance(artist, dict):
-                artist_name = (artist.get("name") or "").strip()
-            else:
-                artist_name = (str(artist) or "").strip()
-            album = (t.get("album") or "").strip()
-            duration = int(t.get("duration", 0) or 0)
-            thumbnail = t.get("thumbnail", "")
-            stream = t.get("stream", {}) or {}
-
-            new_track = {
-                "uuid": t.get("uuid") or str(uuid.uuid4()),
-                "name": name,
-                "artist": {"name": artist_name},
-                "album": album,
-                "duration": duration,
-                "position": idx,
-                "thumbnail": thumbnail,
-                "stream": stream if stream else {"source": "", "id": ""},
-            }
-            cleaned_tracks.append(new_track)
-
-        playlist_obj = {
-            "id": data.get("id") or str(uuid.uuid4()),
-            "name": new_name or "Playlist sin nombre",
-            "tracks": cleaned_tracks,
-            "createdAt": data.get("createdAt") or datetime.utcnow().isoformat() + "Z",
-            "updatedAt": datetime.utcnow().isoformat() + "Z",
-        }
 
         if save_as_new and new_filename:
             target_name = sanitize_filename(new_filename) + ".json"
@@ -402,12 +442,13 @@ def api_update_playlist(filename: str):
         if do_backup and target_path.exists():
             backup_path = create_backup(str(target_path), str(BACKUPS_DIR), prefix="manual_")
 
-        save_playlist_json(playlist_obj, str(target_path))
+        save_playlist_json(v1, str(target_path))
 
+        tracks_count = len(v1["playlist"].get("items", []))
         return jsonify({
             "status": "ok",
             "filename": target_path.name,
-            "tracks": len(cleaned_tracks),
+            "tracks": tracks_count,
             "backup": backup_path,
             "saved_as_new": save_as_new,
         })
@@ -438,7 +479,7 @@ def api_delete_playlist(filename: str):
 
 @app.route("/api/playlists/<path:filename>/add-track", methods=["POST"])
 def api_add_track(filename: str):
-    """Añade un track a una playlist existente."""
+    """Añade un track a una playlist existente (formato Nuclear v1)."""
     try:
         p = _playlist_path(filename)
         if not p.exists():
@@ -447,67 +488,58 @@ def api_add_track(filename: str):
         playlist = load_playlist_json(str(p))
         data = request.get_json(force=True, silent=True) or {}
 
-        name = (data.get("name") or "").strip()
-        if not name:
+        title = (data.get("name") or data.get("title") or "").strip()
+        if not title:
             return jsonify({"error": "Nombre del track requerido"}), 400
 
         artist = (data.get("artist") or "").strip()
         album = (data.get("album") or "").strip()
-        duration = int(data.get("duration", 0) or 0)
-        thumbnail = data.get("thumbnail", "")
+        duration_ms = int(data.get("duration_ms", data.get("duration", 0) or 0))
+        spotify_id = (data.get("spotify_id") or "").strip()
+        thumbnail = (data.get("thumbnail") or "").strip()
 
-        new_track = {
-            "uuid": str(uuid.uuid4()),
-            "name": name,
-            "artist": {"name": artist},
-            "album": album,
-            "duration": duration,
-            "position": len(playlist.get("tracks", [])),
-            "thumbnail": thumbnail,
-            "stream": {"source": "", "id": ""},
-        }
-        playlist.setdefault("tracks", []).append(new_track)
-
+        # Backup previo
         backup_path = create_backup(str(p), str(BACKUPS_DIR), prefix="auto_")
-        save_playlist_json(playlist, str(p))
 
+        updated = add_track_to_playlist(
+            playlist,
+            title=title,
+            artist=artist,
+            album=album,
+            duration_ms=duration_ms,
+            spotify_id=spotify_id,
+            thumbnail=thumbnail,
+        )
+        save_playlist_json(updated, str(p))
+
+        new_item = updated["playlist"]["items"][-1]
         return jsonify({
             "status": "ok",
-            "track": new_track,
+            "item": new_item,
             "backup": backup_path,
-            "tracks_count": len(playlist["tracks"]),
+            "tracks_count": len(updated["playlist"]["items"]),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/playlists/<path:filename>/remove-track/<path:track_uuid>", methods=["DELETE"])
-def api_remove_track(filename: str, track_uuid: str):
-    """Elimina un track por UUID y reordena posiciones."""
+@app.route("/api/playlists/<path:filename>/remove-track/<int:track_index>", methods=["DELETE"])
+def api_remove_track(filename: str, track_index: int):
+    """Elimina un track por su índice (posición en items[]) y reordena trackNumber."""
     try:
         p = _playlist_path(filename)
         if not p.exists():
             return jsonify({"error": "Playlist no encontrada"}), 404
 
         playlist = load_playlist_json(str(p))
-        tracks = playlist.get("tracks", [])
-        original_len = len(tracks)
-        tracks = [t for t in tracks if t.get("uuid") != track_uuid]
-
-        if len(tracks) == original_len:
-            return jsonify({"error": "Track no encontrado"}), 404
-
-        for idx, t in enumerate(tracks):
-            t["position"] = idx
-        playlist["tracks"] = tracks
-
         backup_path = create_backup(str(p), str(BACKUPS_DIR), prefix="auto_")
-        save_playlist_json(playlist, str(p))
+        updated = delete_track_by_index(playlist, track_index)
+        save_playlist_json(updated, str(p))
 
         return jsonify({
             "status": "ok",
             "backup": backup_path,
-            "tracks_count": len(tracks),
+            "tracks_count": len(updated["playlist"]["items"]),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -519,32 +551,43 @@ def api_remove_track(filename: str, track_uuid: str):
 
 @app.route("/api/playlists/<path:filename>/reorder", methods=["POST"])
 def api_reorder_tracks(filename: str):
-    """Reordena tracks según una lista de UUIDs."""
+    """
+    Reordena tracks según una lista de item IDs.
+
+    Body:
+        { "order": ["item_id_1", "item_id_2", ...] }
+    """
     try:
         p = _playlist_path(filename)
         if not p.exists():
             return jsonify({"error": "Playlist no encontrada"}), 404
 
         playlist = load_playlist_json(str(p))
+        v1 = normalize_to_v1(playlist)
         data = request.get_json(force=True, silent=True) or {}
         new_order = data.get("order", [])
         if not isinstance(new_order, list):
-            return jsonify({"error": "Order debe ser una lista de UUIDs"}), 400
+            return jsonify({"error": "Order debe ser una lista de item IDs"}), 400
 
-        by_uuid = {t.get("uuid"): t for t in playlist.get("tracks", [])}
-        new_tracks = []
-        for idx, u in enumerate(new_order):
-            if u in by_uuid:
-                t = by_uuid[u]
-                t["position"] = idx
-                new_tracks.append(t)
+        items = v1["playlist"].get("items", [])
+        by_id = {item.get("id"): item for item in items}
+        new_items = []
+        for idx, item_id in enumerate(new_order):
+            if item_id in by_id:
+                item = by_id[item_id]
+                # Actualizar trackNumber
+                if "track" in item:
+                    item["track"]["trackNumber"] = idx + 1
+                new_items.append(item)
 
-        if len(new_tracks) != len(playlist.get("tracks", [])):
-            return jsonify({"error": "Orden no coincide con tracks existentes"}), 400
+        if len(new_items) != len(items):
+            return jsonify({"error": "Orden no coincide con items existentes"}), 400
 
-        playlist["tracks"] = new_tracks
+        v1["playlist"]["items"] = new_items
+        v1["playlist"]["lastModifiedIso"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.") + "000Z"
+
         backup_path = create_backup(str(p), str(BACKUPS_DIR), prefix="auto_")
-        save_playlist_json(playlist, str(p))
+        save_playlist_json(v1, str(p))
 
         return jsonify({"status": "ok", "backup": backup_path})
     except Exception as e:
@@ -557,12 +600,13 @@ def api_reorder_tracks(filename: str):
 
 @app.route("/api/merge", methods=["POST"])
 def api_merge_playlists():
-    """Combina varias playlists en una nueva."""
+    """Combina varias playlists en una nueva (formato Nuclear v1)."""
     try:
         data = request.get_json(force=True, silent=True) or {}
         filenames = data.get("playlists", [])
         new_name = (data.get("name") or "").strip()
         dedupe = data.get("dedupe", True)
+        description = (data.get("description") or "").strip()
 
         if not filenames:
             return jsonify({"error": "No se seleccionaron playlists"}), 400
@@ -576,7 +620,7 @@ def api_merge_playlists():
                 return jsonify({"error": f"Playlist no encontrada: {fn}"}), 404
             playlists.append(load_playlist_json(str(p)))
 
-        merged = merge_playlists(playlists, new_name, dedupe=dedupe)
+        merged = merge_playlists(playlists, new_name, dedupe=dedupe, description=description)
 
         out_name = sanitize_filename(new_name) + ".json"
         out_path = PLAYLISTS_DIR / out_name
@@ -590,11 +634,63 @@ def api_merge_playlists():
 
         save_playlist_json(merged, str(out_path))
 
+        tracks_count = len(merged["playlist"]["items"])
         return jsonify({
             "status": "ok",
             "filename": out_path.name,
-            "tracks": len(merged["tracks"]),
-            "merged_from": merged.get("merged_from", []),
+            "tracks": tracks_count,
+            "merged_from": merged["playlist"].get("merged_from", []),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# API: Migrar playlists viejas a formato v1
+# ---------------------------------------------------------------------------
+
+@app.route("/api/migrate-all-to-v1", methods=["POST"])
+def api_migrate_all_to_v1():
+    """
+    Migra TODAS las playlists que estén en formato viejo a formato Nuclear v1.
+    Las que ya están en v1 se dejan intactas.
+    """
+    try:
+        json_files = sorted(PLAYLISTS_DIR.glob("*.json"))
+        results = []
+        migrated = 0
+        skipped = 0
+        errors = 0
+
+        for jp in json_files:
+            try:
+                data = load_playlist_json(str(jp))
+                if is_nuclear_v1(data):
+                    skipped += 1
+                    results.append({"file": jp.name, "status": "already_v1"})
+                    continue
+                # Backup del original
+                backup_path = create_backup(str(jp), str(BACKUPS_DIR), prefix="pre_migrate_")
+                v1 = normalize_to_v1(data)
+                save_playlist_json(v1, str(jp))
+                migrated += 1
+                results.append({
+                    "file": jp.name,
+                    "status": "migrated",
+                    "backup": backup_path,
+                    "tracks": len(v1["playlist"]["items"]),
+                })
+            except Exception as e:
+                errors += 1
+                results.append({"file": jp.name, "status": "error", "reason": str(e)})
+
+        return jsonify({
+            "status": "ok",
+            "total": len(json_files),
+            "migrated": migrated,
+            "skipped": skipped,
+            "errors": errors,
+            "results": results,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -666,10 +762,29 @@ def api_delete_backup(filename: str):
 
 @app.route("/api/download/<path:filename>", methods=["GET"])
 def api_download_playlist(filename: str):
+    """Descarga una playlist. Opcionalmente fuerza la normalización a v1."""
     try:
         p = _playlist_path(filename)
         if not p.exists():
             return jsonify({"error": "Playlist no encontrada"}), 404
+
+        force_v1 = request.args.get("v1", "1") in ("1", "true", "yes")
+        if force_v1:
+            data = load_playlist_json(str(p))
+            if not is_nuclear_v1(data):
+                data = normalize_to_v1(data)
+                # Guardar en un archivo temporal
+                tmp_path = p.parent / f".{p.stem}_v1_tmp.json"
+                save_playlist_json(data, str(tmp_path))
+                resp = send_file(str(tmp_path), as_attachment=True, download_name=p.name)
+                # Borrar tmp después de enviar (en teardown)
+                @resp.call_on_close
+                def _cleanup():
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                return resp
         return send_file(str(p), as_attachment=True, download_name=p.name)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -685,8 +800,10 @@ def api_health():
         "status": "ok",
         "playlists_dir": str(PLAYLISTS_DIR),
         "backups_dir": str(BACKUPS_DIR),
+        "uploads_dir": str(UPLOAD_DIR),
         "playlists_count": len(list(PLAYLISTS_DIR.glob("*.json"))),
         "backups_count": len(list(BACKUPS_DIR.glob("*.json"))),
+        "schema_version": "nuclear-v1",
     })
 
 
@@ -697,7 +814,7 @@ def api_health():
 if __name__ == "__main__":
     port = _find_free_port(5000, 5010)
     print("=" * 60)
-    print("  Playlist Manager - Exportify CSV <-> Nuclear Player JSON")
+    print("  Playlist Manager - Exportify CSV <-> Nuclear Player JSON (v1)")
     print("=" * 60)
     print(f"  Playlists dir: {PLAYLISTS_DIR}")
     print(f"  Backups dir:   {BACKUPS_DIR}")

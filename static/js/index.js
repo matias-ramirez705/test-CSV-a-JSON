@@ -45,9 +45,11 @@ async function loadPlaylists() {
         </div>
         <div class="meta">
           <span>🕒 ${fmtDate(p.modified)}</span>
+          ${p.total_duration_str ? `<span>⏱️ ${escapeHtml(p.total_duration_str)}</span>` : ''}
         </div>
         <div class="meta">
           <span class="badge">📄 ${escapeHtml(p.filename)}</span>
+          ${p.is_v1 === false ? '<span class="badge badge-warning" title="Esta playlist está en formato legacy. Se migrará a v1 al editarla.">legacy</span>' : '<span class="badge badge-success" title="Formato Nuclear v1 nativo">v1</span>'}
         </div>
         <div class="actions">
           <a class="btn btn-primary btn-sm" href="/edit/${encodeURIComponent(p.filename)}">✏️ Editar</a>
@@ -339,5 +341,31 @@ async function clearUploads() {
     loadPendingUploads();
   } catch (e) {
     toast(e.message, 'error');
+  }
+}
+
+// ============================================================
+// 🔄 Migrar playlists viejas a formato Nuclear v1
+// ============================================================
+
+async function migrateAllToV1() {
+  if (!confirm(
+    '¿Migrar TODAS las playlists en formato legacy al formato Nuclear v1?\n\n' +
+    '• Las que ya están en v1 se dejan intactas.\n' +
+    '• Las que están en formato viejo se convierten a v1 (con backup previo).\n' +
+    '• Esta acción es recomendable si tienes playlists creadas con versiones anteriores de la app.'
+  )) return;
+
+  try {
+    const data = await api('/api/migrate-all-to-v1', { method: 'POST' });
+    toast(
+      `${data.migrated} migradas, ${data.skipped} ya estaban en v1, ${data.errors} errores`,
+      data.errors > 0 ? 'warning' : 'success',
+      'Migración completada'
+    );
+    loadPlaylists();
+    loadStats();
+  } catch (e) {
+    toast(e.message, 'error', 'Error en migración');
   }
 }

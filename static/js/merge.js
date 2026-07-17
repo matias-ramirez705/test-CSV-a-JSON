@@ -68,6 +68,7 @@ async function doMerge() {
     return;
   }
   const dedupe = document.getElementById('merge-dedupe').checked;
+  const description = (document.getElementById('merge-description') || {}).value || '';
 
   const btn = document.getElementById('merge-btn');
   btn.disabled = true;
@@ -80,6 +81,7 @@ async function doMerge() {
         playlists: Array.from(selectedForMerge),
         name,
         dedupe,
+        description,
       }),
     });
     const resultDiv = document.getElementById('merge-result');
