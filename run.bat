@@ -60,15 +60,27 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Matar cualquier instancia previa de Python que tenga el puerto 5000 ocupado
+REM (a veces queda colgada de una ejecucion anterior)
+echo.
+echo Limpiando instancias previas...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5000 " ^| findstr "LISTENING" 2^>nul') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+
+REM Abrir el navegador en segundo plano despus de 4 segundos
+REM (damos tiempo a que Flask arranque)
+echo Abriendo navegador...
+start "" /b cmd /c "timeout /t 4 /nobreak >nul && start http://127.0.0.1:5000"
+
 echo.
 echo ============================================================
 echo   Playlist Manager iniciando...
 echo.
-echo   Abre en tu navegador:
+echo   Se abrira automaticamente tu navegador en:
 echo     http://127.0.0.1:5000
 echo.
-echo   Si el puerto 5000 esta ocupado, se usara otro (5001-5010).
-echo   Mira la consola para ver el puerto final.
+echo   Si no se abre, copia esa URL manualmente.
 echo.
 echo   Ctrl+C para detener el servidor.
 echo ============================================================
@@ -76,4 +88,7 @@ echo.
 
 python "%~dp0app.py"
 
+REM Si llegamos aqui, el servidor se cerr. Preguntar antes de salir.
+echo.
+echo Servidor detenido.
 pause
