@@ -30,6 +30,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import unicodedata
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -40,25 +41,73 @@ from typing import Any, Dict, List, Optional, Tuple
 # Detección de columnas
 # ---------------------------------------------------------------------------
 
-# Nombres de columnas posibles en CSVs de Exportify (varía según versión).
+# Nombres de columnas posibles en CSVs de Exportify (varía según versión e idioma).
+# Exportify usa el idioma de la cuenta de Spotify del usuario, así que pueden
+# venir cabeceras en inglés, español, portugués, francés, alemán, etc.
 COLUMN_ALIASES = {
-    "track_name": ["Track Name", "Track name", "track_name", "name", "Name", "titulo", "Título"],
-    "album_name": ["Album Name", "Album", "album_name", "album"],
-    "artist_name": ["Artist Name(s)", "Artist Name", "Artist", "artist_name", "artist", "Artista"],
-    "duration_ms": ["Duration (ms)", "Duration", "duration_ms", "duration"],
-    "duration_s": ["Duration (s)", "duration_s"],
-    "spotify_id": ["Spotify ID", "spotify_id", "id", "URI"],
-    "album_art": ["Album Art URL", "album_art", "thumbnail", "Thumbnail"],
-    "release_date": ["Release Date", "release_date"],
-    "popularity": ["Popularity", "popularity"],
-    "added_at": ["Added At", "added_at"],
-    "genres": ["Genres", "genres"],
+    "track_name": [
+        # Español (formato nuevo de Spotify/Exportify)
+        "Nombre de la canción", "Nombre de la cancion",
+        # Inglés (formato clásico Exportify)
+        "Track Name", "Track name",
+        # Exportify v3+
+        "track_name", "name", "Name",
+        # Otros
+        "titulo", "Título", "Titulo", "Canción", "Cancion",
+    ],
+    "album_name": [
+        "Nombre del álbum", "Nombre del album",
+        "Album Name", "Album",
+        "album_name", "album",
+        "Álbum", "Album",
+    ],
+    "artist_name": [
+        "Nombre(s) del artista", "Nombre(s) de los artistas",
+        "Artist Name(s)", "Artist Name", "Artist(s)",
+        "artist_name", "artist", "Artista", "Artistas",
+    ],
+    "duration_ms": [
+        "Duración de la canción (ms)", "Duración de la canción",
+        "Duration (ms)", "Duration",
+        "duration_ms", "duration",
+        "Duración (ms)", "Duracion (ms)", "Duración", "Duracion",
+    ],
+    "duration_s": ["Duration (s)", "duration_s", "Duración (s)", "Duracion (s)"],
+    "spotify_id": [
+        "URI de la canción", "URI de la cancion",
+        "Spotify ID", "spotify_id", "id", "URI",
+        "Spotify URI",
+    ],
+    "album_art": [
+        "URL de la imagen del álbum", "URL de la imagen del album",
+        "Album Art URL", "album_art", "thumbnail", "Thumbnail",
+        "Imagen del álbum", "Imagen", "Cover URL",
+    ],
+    "release_date": [
+        "Fecha de lanzamiento del álbum", "Fecha de lanzamiento",
+        "Release Date", "release_date",
+        "Lanzamiento",
+    ],
+    "popularity": ["Popularity", "popularidad", "Popularidad"],
+    "added_at": ["Added At", "added_at", "Añadido en", "Agregado en", "Added"],
+    "genres": ["Genres", "genres", "Géneros", "Generos"],
 }
 
 
 def _normalize_header(header: str) -> str:
-    """Normaliza un encabezado para comparación robusta."""
-    return header.strip().lower().replace(" ", "").replace("_", "").replace("-", "")
+    """
+    Normaliza un encabezado para comparación robusta.
+
+    Quita espacios, _, -, baja a minúsculas y ELIMINA TILDES,
+    para que 'Álbum' == 'Album' y 'Canción' == 'Cancion'.
+    """
+    if not header:
+        return ""
+    # Quitar tildes/diacríticos (á->a, é->e, ñ->n, ü->u, etc.)
+    nfkd = unicodedata.normalize("NFKD", header)
+    sin_tildes = "".join(c for c in nfkd if not unicodedata.combining(c))
+    # Bajar a minúsculas y quitar espacios/_, -
+    return sin_tildes.strip().lower().replace(" ", "").replace("_", "").replace("-", "")
 
 
 def _build_header_map(headers: List[str]) -> Dict[str, str]:
@@ -142,7 +191,13 @@ def parse_exportify_csv(csv_path: str) -> List[Dict[str, Any]]:
                 duration = 0
 
         thumbnail = row.get(header_map.get("album_art", ""), "").strip()
-        spotify_id = row.get(header_map.get("spotify_id", ""), "").strip()
+        spotify_id_raw = row.get(header_map.get("spotify_id", ""), "").strip()
+        # Si viene como URI (spotify:track:xxxx), extraer solo el ID
+        spotify_id = spotify_id_raw
+        if spotify_id_raw.startswith("spotify:track:"):
+            spotify_id = spotify_id_raw.rsplit(":", 1)[-1]
+        elif spotify_id_raw.startswith("https://open.spotify.com/track/"):
+            spotify_id = spotify_id_raw.rsplit("/", 1)[-1].split("?")[0]
 
         # Conservar metadatos extra por si el usuario quiere re-exportar.
         extra = {

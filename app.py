@@ -706,4 +706,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  Abre http://127.0.0.1:{port} en tu navegador")
     print("=" * 60)
+    # debug=False y use_reloader=False: evita el doble arranque que
+    # confundía al usuario (5000 primero, 5001 después) y causaba
+    # ERR_CONNECTION_REFUSED al abrir el navegador automáticamente.
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
