@@ -184,3 +184,160 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
 // ---- Init ----
 loadStats();
 loadPlaylists();
+loadPendingUploads();
+
+// ============================================================
+// 🆕 Procesamiento masivo desde carpeta uploads/
+// ============================================================
+
+async function loadPendingUploads() {
+  const countEl = document.getElementById('pending-count');
+  const pathEl = document.getElementById('uploads-path');
+  const listEl = document.getElementById('uploads-list');
+  const convertBtn = document.getElementById('batch-convert-btn');
+  const clearBtn = document.getElementById('batch-clear-btn');
+
+  try {
+    const data = await api('/api/uploads');
+    countEl.textContent = data.count;
+    pathEl.textContent = data.uploads_dir;
+
+    if (data.count === 0) {
+      listEl.innerHTML = `
+        <div class="empty" style="padding:20px">
+          <div class="icon" style="font-size:24px;opacity:0.5">📂</div>
+          <p style="font-size:12px;color:var(--text-dim);margin-top:6px">
+            Copia tus CSV a la carpeta <code>uploads/</code> del proyecto y luego pulsa "Refrescar".
+          </p>
+        </div>`;
+      convertBtn.disabled = true;
+      clearBtn.disabled = true;
+    } else {
+      listEl.innerHTML = `
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">
+          CSV listos para convertir:
+        </div>
+        <div class="backup-list" style="max-height:140px">
+          ${data.files.map(f => `
+            <div class="backup-item" style="padding:6px 10px">
+              <div class="info">
+                <div class="filename" style="font-size:12px">📄 ${escapeHtml(f.filename)}</div>
+                <div class="meta">${fmtBytes(f.size_bytes)} · ${fmtDate(f.modified)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>`;
+      convertBtn.disabled = false;
+      clearBtn.disabled = false;
+    }
+  } catch (e) {
+    countEl.textContent = '?';
+    pathEl.textContent = 'Error: ' + escapeHtml(e.message);
+    listEl.innerHTML = '';
+    convertBtn.disabled = true;
+    clearBtn.disabled = true;
+  }
+}
+
+async function convertAllUploads() {
+  const backup = document.getElementById('batch-backup').checked;
+  const overwrite = document.getElementById('batch-overwrite').checked;
+  const deleteCsv = document.getElementById('batch-delete-csv').checked;
+
+  const btn = document.getElementById('batch-convert-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Convirtiendo...';
+
+  const resultDiv = document.getElementById('batch-result');
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = `
+    <div class="card" style="background:var(--bg-elev-2);padding:16px">
+      <div class="card-title" style="font-size:14px"><span class="spinner"></span> Procesando...</div>
+    </div>`;
+
+  try {
+    const data = await api('/api/convert-all-uploads', {
+      method: 'POST',
+      body: JSON.stringify({ backup, overwrite, delete_csv: deleteCsv }),
+    });
+
+    const ok = data.ok || 0;
+    const err = data.errors || 0;
+    const skip = data.skipped || 0;
+    const total = data.total_csv || 0;
+    const tracks = data.total_tracks || 0;
+
+    const statusColor = err > 0 ? 'warning' : 'success';
+    resultDiv.innerHTML = `
+      <div class="card" style="background:var(--bg-elev-2);padding:16px;border-left:4px solid var(--${statusColor})">
+        <div class="card-title" style="font-size:16px">
+          ${err === 0 ? '✓' : '⚠️'} Conversión masiva completada
+        </div>
+        <div class="row mt-2">
+          <div class="field" style="margin:0">
+            <label style="margin:0">Total CSV</label>
+            <div style="font-size:20px;font-weight:700">${total}</div>
+          </div>
+          <div class="field" style="margin:0">
+            <label style="margin:0">Convertidos</label>
+            <div style="font-size:20px;font-weight:700;color:var(--success)">${ok}</div>
+          </div>
+          <div class="field" style="margin:0">
+            <label style="margin:0">Con error</label>
+            <div style="font-size:20px;font-weight:700;color:var(--danger)">${err}</div>
+          </div>
+          <div class="field" style="margin:0">
+            <label style="margin:0">Canciones totales</label>
+            <div style="font-size:20px;font-weight:700">${tracks}</div>
+          </div>
+        </div>
+        ${err > 0 ? `
+          <div class="mt-2">
+            <label>Detalles de errores:</label>
+            <div style="max-height:120px;overflow-y:auto;background:var(--bg);padding:8px;border-radius:6px;font-size:12px">
+              ${data.results.filter(r => r.status === 'error').map(r => `
+                <div style="margin-bottom:4px">
+                  <strong>${escapeHtml(r.file)}</strong>: ${escapeHtml(r.reason)}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+        <div class="flex gap-1 mt-2">
+          <a class="btn btn-primary" href="/">↻ Ver mis playlists</a>
+        </div>
+      </div>
+    `;
+
+    toast(
+      `${ok} de ${total} playlists convertidas (${tracks} canciones)${err ? ', ' + err + ' con error' : ''}`,
+      err ? 'warning' : 'success',
+      'Conversión masiva'
+    );
+
+    loadPlaylists();
+    loadStats();
+    loadPendingUploads();
+  } catch (e) {
+    resultDiv.innerHTML = `
+      <div class="card" style="background:var(--bg-elev-2);padding:16px;border-left:4px solid var(--danger)">
+        <div class="card-title text-danger">⚠️ Error</div>
+        <p class="mt-1">${escapeHtml(e.message)}</p>
+      </div>`;
+    toast(e.message, 'error', 'Error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span>⚡ Convertir todos los CSV</span>';
+  }
+}
+
+async function clearUploads() {
+  if (!confirm('¿Borrar TODOS los CSV de la carpeta uploads/?\nEsta acción no se puede deshacer.')) return;
+  try {
+    const data = await api('/api/uploads/clear', { method: 'DELETE' });
+    toast(`${data.deleted} CSV eliminados`, 'success');
+    loadPendingUploads();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}

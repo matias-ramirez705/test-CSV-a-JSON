@@ -162,6 +162,53 @@ def api_get_playlist(filename: str):
         return jsonify({"error": str(e)}), 500
 
 
+def _convert_csv_file(
+    csv_path: Path,
+    *,
+    auto_backup: bool = True,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """
+    Convierte un CSV individual a JSON formato Nuclear.
+
+    Devuelve un dict con el resultado del proceso.
+    """
+    filename = csv_path.name
+    if not filename.lower().endswith(".csv"):
+        return {"file": filename, "status": "skipped", "reason": "No es CSV"}
+
+    try:
+        tracks = parse_exportify_csv(str(csv_path))
+        if not tracks:
+            return {"file": filename, "status": "error", "reason": "CSV vacío o sin tracks válidos"}
+
+        playlist_name = Path(filename).stem
+        playlist = build_nuclear_playlist(playlist_name, tracks)
+        out_name = sanitize_filename(playlist_name) + ".json"
+        out_path = PLAYLISTS_DIR / out_name
+
+        backup_path = ""
+        if out_path.exists():
+            if auto_backup:
+                backup_path = create_backup(str(out_path), str(BACKUPS_DIR), prefix="auto_")
+            if not overwrite:
+                counter = 1
+                while out_path.exists():
+                    out_path = PLAYLISTS_DIR / f"{sanitize_filename(playlist_name)}_{counter}.json"
+                    counter += 1
+
+        save_playlist_json(playlist, str(out_path))
+        return {
+            "file": filename,
+            "status": "ok",
+            "playlist_file": out_path.name,
+            "tracks": len(tracks),
+            "backup": backup_path,
+        }
+    except Exception as e:
+        return {"file": filename, "status": "error", "reason": str(e)}
+
+
 @app.route("/api/upload-csv", methods=["POST"])
 def api_upload_csv():
     """Sube uno o más CSVs y los convierte a JSON formato Nuclear."""
@@ -185,39 +232,105 @@ def api_upload_csv():
         csv_path = UPLOAD_DIR / filename
         f.save(str(csv_path))
 
-        try:
-            tracks = parse_exportify_csv(str(csv_path))
-            if not tracks:
-                results.append({"file": filename, "status": "error", "reason": "CSV vacío o sin tracks válidos"})
-                continue
-
-            playlist_name = Path(filename).stem
-            playlist = build_nuclear_playlist(playlist_name, tracks)
-            out_name = sanitize_filename(playlist_name) + ".json"
-            out_path = PLAYLISTS_DIR / out_name
-
-            backup_path = ""
-            if out_path.exists():
-                if auto_backup:
-                    backup_path = create_backup(str(out_path), str(BACKUPS_DIR), prefix="auto_")
-                if not overwrite:
-                    counter = 1
-                    while out_path.exists():
-                        out_path = PLAYLISTS_DIR / f"{sanitize_filename(playlist_name)}_{counter}.json"
-                        counter += 1
-
-            save_playlist_json(playlist, str(out_path))
-            results.append({
-                "file": filename,
-                "status": "ok",
-                "playlist_file": out_path.name,
-                "tracks": len(tracks),
-                "backup": backup_path,
-            })
-        except Exception as e:
-            results.append({"file": filename, "status": "error", "reason": str(e)})
+        results.append(_convert_csv_file(
+            csv_path,
+            auto_backup=auto_backup,
+            overwrite=overwrite,
+        ))
 
     return jsonify({"results": results})
+
+
+@app.route("/api/convert-all-uploads", methods=["POST"])
+def api_convert_all_uploads():
+    """
+    Convierte TODOS los CSV que estén en la carpeta uploads/ en una sola pasada.
+    Útil cuando el usuario ya copió muchos CSV a esa carpeta desde el explorador.
+
+    Body opcional (JSON):
+        {
+            "backup": true,         # default true
+            "overwrite": false,     # default false (usa _1, _2, ...)
+            "delete_csv": false     # default false (borra el CSV después de convertirlo)
+        }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        auto_backup = bool(data.get("backup", True))
+        overwrite = bool(data.get("overwrite", False))
+        delete_csv = bool(data.get("delete_csv", False))
+
+        csv_files = sorted(UPLOAD_DIR.glob("*.csv"))
+        if not csv_files:
+            return jsonify({
+                "error": f"No hay archivos .csv en la carpeta uploads/ ({UPLOAD_DIR})",
+                "uploads_dir": str(UPLOAD_DIR),
+            }), 404
+
+        results = []
+        for csv_path in csv_files:
+            result = _convert_csv_file(
+                csv_path,
+                auto_backup=auto_backup,
+                overwrite=overwrite,
+            )
+            # Borrar CSV si se pidió y la conversión fue exitosa
+            if delete_csv and result["status"] == "ok" and csv_path.exists():
+                try:
+                    csv_path.unlink()
+                    result["csv_deleted"] = True
+                except Exception:
+                    result["csv_deleted"] = False
+            results.append(result)
+
+        ok_count = sum(1 for r in results if r["status"] == "ok")
+        err_count = sum(1 for r in results if r["status"] == "error")
+        skip_count = sum(1 for r in results if r["status"] == "skipped")
+        total_tracks = sum(r.get("tracks", 0) for r in results if r["status"] == "ok")
+
+        return jsonify({
+            "status": "ok",
+            "total_csv": len(csv_files),
+            "ok": ok_count,
+            "errors": err_count,
+            "skipped": skip_count,
+            "total_tracks": total_tracks,
+            "uploads_dir": str(UPLOAD_DIR),
+            "playlists_dir": str(PLAYLISTS_DIR),
+            "results": results,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/uploads", methods=["GET"])
+def api_list_uploads():
+    """Lista los CSV pendientes en la carpeta uploads/."""
+    csv_files = sorted(UPLOAD_DIR.glob("*.csv"))
+    return jsonify({
+        "uploads_dir": str(UPLOAD_DIR),
+        "count": len(csv_files),
+        "files": [
+            {
+                "filename": f.name,
+                "size_bytes": f.stat().st_size,
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            }
+            for f in csv_files
+        ],
+    })
+
+
+@app.route("/api/uploads/clear", methods=["DELETE"])
+def api_clear_uploads():
+    """Borra todos los CSV de la carpeta uploads/."""
+    try:
+        csv_files = list(UPLOAD_DIR.glob("*.csv"))
+        for f in csv_files:
+            f.unlink()
+        return jsonify({"status": "ok", "deleted": len(csv_files)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------

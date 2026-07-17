@@ -18,6 +18,7 @@ Aplicación web local (Flask) para convertir playlists exportadas desde [exporti
 test-CSV-a-JSON/
 ├── app.py                    # Servidor Flask (rutas + API)
 ├── playlist_converter.py     # Lógica de conversión CSV<->JSON y backups
+├── convert_all.py            # 🆕 CLI para conversión MASIVA por lotes
 ├── requirements.txt          # Dependencias (Flask, Werkzeug)
 ├── run.bat                   # Lanzador para Windows
 ├── sample_playlist.csv       # CSV de ejemplo (9 canciones)
@@ -33,13 +34,13 @@ test-CSV-a-JSON/
 │   ├── css/style.css
 │   └── js/
 │       ├── app.js            # utilidades compartidas
-│       ├── index.js          # lógica de la home
+│       ├── index.js          # lógica de la home (incluye modo masivo)
 │       ├── edit.js           # lógica del editor
 │       ├── merge.js          # lógica de combinar
 │       └── backups.js        # lógica de respaldos
-├── uploads/                  # CSVs subidos (runtime)
-├── playlists/                # JSON convertidos (runtime)
-└── backups/                  # Respaldo automáticos (runtime)
+├── uploads/                  # 📂 TUS CSV van aquí
+├── playlists/                # JSON convertidos (los crea la app)
+└── backups/                  # Respaldos automáticos (los crea la app)
 ```
 
 > ⚠️ **Importante**: Los HTML que usan `{{ url_for('static', ...) }}` o `{% extends %}` DEBEN estar en `templates/`, y los CSS/JS DEBEN estar en `static/css/` y `static/js/`. Si los dejas en la raíz, Flask no los encuentra y la página se ve en blanco — ese era el bug de la versión anterior.
@@ -57,9 +58,56 @@ test-CSV-a-JSON/
 1. Entra a https://exportify.app/
 2. Inicia sesión con tu cuenta de Spotify.
 3. Selecciona las playlists que quieras exportar y descarga los CSV.
-4. En Playlist Manager, ve a la home y arrastra los CSV a la zona de subida.
-5. Pulsa "Convertir a JSON".
-6. Cuando termines, descarga los JSON desde la tarjeta de cada playlist (botón ⬇️ Descargar).
+4. **Copia los CSV a la carpeta `uploads/` del proyecto** (puedes seleccionarlos todos en el explorador de Windows y arrastrarlos a esa carpeta).
+5. Sigue las instrucciones de "Procesamiento masivo" más abajo.
+
+## 🚀 Procesamiento masivo (muchas playlists a la vez)
+
+Hay dos formas de convertir muchos CSV de una sola vez:
+
+### Opción A — Desde la web (recomendada)
+
+1. **Copia todos tus CSV** a la carpeta `uploads/` del proyecto (desde el explorador de archivos de Windows).
+2. Ejecuta `run.bat` y abre `http://127.0.0.1:5000`.
+3. En la home verás la tarjeta **⚡ Procesamiento masivo** con el contador de CSV pendientes.
+4. Pulsa **↻ Refrescar** si no se actualizó solo.
+5. Opcionalmente marca:
+   - **Sobrescribir si ya existe** — reemplaza el JSON anterior (crea backup antes).
+   - **Borrar CSV originales** — limpia la carpeta `uploads/` después de convertir.
+6. Pulsa **⚡ Convertir todos los CSV**.
+7. Aparecerá un resumen con: total convertidos, con error, canciones totales.
+8. Tus JSON estarán en `playlists/` — descárgalos desde la lista de "Mis playlists".
+
+### Opción B — Desde la consola (sin abrir la web)
+
+Si prefieres no abrir el navegador y solo quieres convertir todo de golpe:
+
+```bash
+# Convertir todos los CSV de uploads/ a playlists/
+python convert_all.py
+
+# Convertir todos los CSV de una carpeta específica
+python convert_all.py "C:\Users\yo\Downloads\mis_csvs"
+
+# Sobrescribir JSON existentes (con backup previo)
+python convert_all.py --overwrite
+
+# Borrar los CSV después de convertirlos
+python convert_all.py --delete-csv
+
+# Combinar todo
+python convert_all.py "C:\csvs" --overwrite --delete-csv
+```
+
+El script muestra un progreso `[  1/50]`, `[  2/50]`, ... y al final un resumen:
+
+```
+======================================================================
+  Resultado: 50 OK, 0 con error, 1247 canciones totales
+  JSON guardados en: /home/z/.../playlists
+  ¡Todo OK!
+======================================================================
+```
 
 ## Cómo importar a Nuclear Player
 
@@ -113,6 +161,9 @@ Abre `http://127.0.0.1:5000/api/health` para ver el estado del servidor y las ca
 | GET    | `/api/playlists` | Lista playlists convertidas |
 | GET    | `/api/playlists/<filename>` | Detalle de una playlist |
 | POST   | `/api/upload-csv` | Sube CSVs (multipart) |
+| POST   | `/api/convert-all-uploads` | 🆕 Convierte todos los CSV de `uploads/` |
+| GET    | `/api/uploads` | 🆕 Lista CSV pendientes en `uploads/` |
+| DELETE | `/api/uploads/clear` | 🆕 Vacía la carpeta `uploads/` |
 | PUT    | `/api/playlists/<filename>` | Guarda cambios (renombrar, tracks, save_as_new) |
 | DELETE | `/api/playlists/<filename>` | Elimina playlist (con backup) |
 | POST   | `/api/playlists/<filename>/add-track` | Añade canción |

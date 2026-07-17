@@ -47,6 +47,64 @@
   </form>
 </div>
 
+<!-- 🆕 Procesamiento masivo desde carpeta uploads/ -->
+<div class="card" style="border-color:var(--primary);background:linear-gradient(180deg,rgba(108,92,231,0.05),var(--bg-elev))">
+  <div class="card-header">
+    <div>
+      <div class="card-title">⚡ Procesamiento masivo</div>
+      <div class="card-subtitle">
+        ¿Tienes muchas playlists? Copia todos tus CSV a la carpeta <code>uploads/</code> del proyecto (desde el explorador de archivos de Windows) y conviértelos todos de una sola vez.
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="loadPendingUploads()">↻ Refrescar</button>
+  </div>
+
+  <div id="uploads-info" class="row" style="background:var(--bg);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:12px;font-size:13px;">
+    <div class="field" style="margin:0">
+      <label style="margin:0">CSV pendientes en uploads/</label>
+      <div style="font-size:22px;font-weight:700;color:var(--primary)" id="pending-count">—</div>
+    </div>
+    <div class="field" style="margin:0">
+      <label style="margin:0">Ruta de la carpeta</label>
+      <div style="font-size:12px;color:var(--text-dim);word-break:break-all" id="uploads-path">—</div>
+    </div>
+  </div>
+
+  <div id="uploads-list" style="max-height:200px;overflow-y:auto;margin-bottom:12px;"></div>
+
+  <div class="row">
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="batch-backup" checked>
+        Hacer respaldo de playlists existentes antes de sobrescribir
+      </label>
+    </div>
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="batch-overwrite">
+        Sobrescribir si ya existe (en vez de crear _1, _2, etc.)
+      </label>
+    </div>
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="batch-delete-csv">
+        Borrar CSV originales después de convertirlos
+      </label>
+    </div>
+  </div>
+
+  <div class="flex gap-1">
+    <button class="btn btn-primary" id="batch-convert-btn" onclick="convertAllUploads()" disabled>
+      <span>⚡ Convertir todos los CSV</span>
+    </button>
+    <button class="btn btn-ghost" id="batch-clear-btn" onclick="clearUploads()" disabled>
+      🗑️ Vaciar carpeta uploads/
+    </button>
+  </div>
+
+  <div id="batch-result" style="display:none;margin-top:16px;"></div>
+</div>
+
 <div class="card">
   <div class="card-header">
     <div>
