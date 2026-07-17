@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Editar playlist · Playlist Manager{% endblock %}
+{% block content %}
+
+<div id="editor-root">
+  <div class="empty">
+    <div class="spinner"></div>
+    <p class="mt-2">Cargando playlist...</p>
+  </div>
+</div>
+
+<!-- Modal: añadir canción -->
+<div class="modal-backdrop" id="add-track-modal">
+  <div class="modal">
+    <h3>Añadir canción</h3>
+    <div class="field">
+      <label>Nombre de la canción *</label>
+      <input class="input" id="new-track-name" placeholder="Ej. Bohemian Rhapsody">
+    </div>
+    <div class="field">
+      <label>Artista</label>
+      <input class="input" id="new-track-artist" placeholder="Ej. Queen">
+    </div>
+    <div class="field">
+      <label>Álbum</label>
+      <input class="input" id="new-track-album" placeholder="Ej. A Night at the Opera">
+    </div>
+    <div class="field">
+      <label>Duración (segundos)</label>
+      <input class="input" id="new-track-duration" type="number" min="0" placeholder="354">
+    </div>
+    <div class="field">
+      <label>URL de thumbnail (opcional)</label>
+      <input class="input" id="new-track-thumb" placeholder="https://...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('add-track-modal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="submitNewTrack()">Añadir</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: guardar como / confirmar guardado -->
+<div class="modal-backdrop" id="save-modal">
+  <div class="modal">
+    <h3 id="save-modal-title">Guardar cambios</h3>
+    <div class="field">
+      <label>Nombre de la playlist</label>
+      <input class="input" id="save-name" placeholder="Mi playlist">
+    </div>
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="save-as-new">
+        Guardar como nueva playlist (no sobrescribir)
+      </label>
+    </div>
+    <div class="field" id="new-filename-field" style="display:none">
+      <label>Nombre del archivo</label>
+      <input class="input" id="save-new-filename" placeholder="mi_nueva_playlist">
+      <small class="text-dim">Se añadirá automáticamente la extensión .json</small>
+    </div>
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="save-backup" checked>
+        Crear respaldo del archivo actual antes de guardar
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('save-modal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmSave()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: confirmar eliminación de track -->
+<div class="modal-backdrop" id="confirm-delete-modal">
+  <div class="modal">
+    <h3>¿Eliminar canción?</h3>
+    <p id="confirm-delete-msg" class="text-dim"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('confirm-delete-modal')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-delete-btn">Eliminar</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.EDITOR_FILENAME = "{{ filename }}";
+</script>
+<script src="{{ url_for('static', filename='js/edit.js') }}"></script>
+{% endblock %}

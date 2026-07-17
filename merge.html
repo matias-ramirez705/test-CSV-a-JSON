@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Combinar playlists · Playlist Manager{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Combinar playlists</div>
+      <div class="card-subtitle">Selecciona dos o más playlists y únelas en una nueva. Las originales no se modifican.</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="loadMergeList()">↻ Recargar</button>
+  </div>
+
+  <div id="merge-list" class="merge-list">
+    <div class="empty">
+      <div class="spinner"></div>
+      <p class="mt-2">Cargando...</p>
+    </div>
+  </div>
+
+  <div class="card mt-3" style="background:var(--bg-elev-2);border-style:dashed">
+    <div class="field">
+      <label>Nombre de la nueva playlist combinada *</label>
+      <input class="input" id="merge-name" placeholder="Ej. Lo mejor de 2024">
+    </div>
+    <div class="field">
+      <label class="checkbox">
+        <input type="checkbox" id="merge-dedupe" checked>
+        Eliminar canciones duplicadas (mismo nombre + artista)
+      </label>
+    </div>
+    <div class="flex gap-1">
+      <button class="btn btn-primary" id="merge-btn" onclick="doMerge()" disabled>
+        <span>Combinar <span id="merge-count">0</span> playlists</span>
+      </button>
+      <button class="btn btn-ghost" onclick="clearSelection()">Limpiar selección</button>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="merge-result" style="display:none">
+  <div class="card-title text-success">✓ Playlist combinada creada</div>
+  <div id="merge-result-content" class="mt-2"></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/merge.js') }}"></script>
+{% endblock %}

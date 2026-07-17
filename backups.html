@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Respaldos · Playlist Manager{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Respaldos</div>
+      <div class="card-subtitle">Versiones anteriores de tus playlists. Puedes restaurarlas o descargarlas.</div>
+    </div>
+    <div class="flex gap-1">
+      <button class="btn btn-ghost btn-sm" onclick="loadBackups()">↻ Recargar</button>
+    </div>
+  </div>
+  <div id="backups-container">
+    <div class="empty">
+      <div class="spinner"></div>
+      <p class="mt-2">Cargando respaldos...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: restaurar backup -->
+<div class="modal-backdrop" id="restore-modal">
+  <div class="modal">
+    <h3>Restaurar respaldo</h3>
+    <p class="text-dim mb-2" id="restore-source-name"></p>
+    <div class="field">
+      <label>Restaurar en playlist destino *</label>
+      <select class="select" id="restore-target">
+        <option value="">— Selecciona una playlist —</option>
+      </select>
+      <small class="text-dim mt-1" style="display:block">
+        Se creará un respaldo del estado actual antes de sobrescribirlo.
+      </small>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('restore-modal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmRestore()">Restaurar</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/backups.js') }}"></script>
+{% endblock %}

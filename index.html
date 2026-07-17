@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Playlists · Playlist Manager{% endblock %}
+{% block content %}
+
+<div class="stats" id="stats">
+  <div class="stat"><div class="label">Playlists</div><div class="value" id="stat-playlists">—</div></div>
+  <div class="stat"><div class="label">Canciones totales</div><div class="value" id="stat-tracks">—</div></div>
+  <div class="stat"><div class="label">Respaldos</div><div class="value" id="stat-backups">—</div></div>
+  <div class="stat"><div class="label">Tamaño total</div><div class="value" id="stat-size">—</div></div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Importar CSV desde Exportify</div>
+      <div class="card-subtitle">Sube uno o más archivos CSV exportados desde exportify.app para convertirlos a formato Nuclear Player.</div>
+    </div>
+  </div>
+  <form id="upload-form" enctype="multipart/form-data">
+    <div class="upload-zone" id="upload-zone">
+      <div class="icon">📁</div>
+      <div><strong>Arrastra aquí tus CSV</strong> o haz clic para seleccionar</div>
+      <div class="hint">Acepta uno o varios archivos .csv (formato Exportify)</div>
+      <input type="file" id="csv-input" name="files" accept=".csv" multiple style="display:none">
+    </div>
+    <div id="file-list" class="mt-2" style="display:flex;flex-direction:column;gap:6px;"></div>
+    <div class="row mt-2">
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" id="backup-checkbox" checked>
+          Hacer respaldo automático si la playlist ya existe
+        </label>
+      </div>
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" id="overwrite-checkbox">
+          Sobrescribir si ya existe (en vez de crear _1, _2, etc.)
+        </label>
+      </div>
+    </div>
+    <div class="flex gap-1 mt-2">
+      <button type="submit" class="btn btn-primary" id="upload-btn" disabled>
+        <span>Convertir a JSON</span>
+      </button>
+      <button type="button" class="btn btn-ghost" id="clear-btn">Limpiar</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Mis playlists</div>
+      <div class="card-subtitle">Playlists convertidas a formato Nuclear Player (JSON).</div>
+    </div>
+    <div class="flex gap-1">
+      <button class="btn btn-ghost btn-sm" onclick="loadPlaylists()">↻ Recargar</button>
+    </div>
+  </div>
+  <div id="playlists-container">
+    <div class="empty">
+      <div class="icon">🎵</div>
+      <h3>No hay playlists</h3>
+      <p>Sube un CSV desde Exportify para empezar.</p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
+{% endblock %}
