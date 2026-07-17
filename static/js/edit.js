@@ -91,7 +91,9 @@ function renderTrackRow(t, i) {
       <td class="track-duration">${fmtDuration(t.duration)}</td>
       <td class="track-actions">
         <button class="btn btn-ghost btn-icon btn-sm" title="Eliminar"
-          onclick="askDeleteTrack('${escapeHtml(t.uuid)}', '${escapeHtml((t.name || '').replace(/'/g,''))}')">🗑️</button>
+          data-uuid="${escapeHtml(t.uuid || '')}"
+          data-name="${escapeHtml(t.name || '')}"
+          onclick="askDeleteTrack(this.dataset.uuid, this.dataset.name)">🗑️</button>
       </td>
     </tr>
   `;

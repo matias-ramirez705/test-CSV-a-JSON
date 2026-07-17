@@ -1,5 +1,29 @@
-__pycache__/playlist_converter.cpython-311.pyc
-/playlists
-/backups
-/uploads
-/venv
+# Entorno virtual
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+
+# Datos generados por la app (se crean en runtime)
+uploads/*
+playlists/*
+backups/*
+
+# Mantener las carpetas (vacías) en git
+!uploads/.gitkeep
+!playlists/.gitkeep
+!backups/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

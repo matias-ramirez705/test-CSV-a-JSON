@@ -1,119 +1,134 @@
-# Playlist Manager · Exportify CSV → Nuclear Player JSON
+# Playlist Manager — Exportify CSV ↔ Nuclear Player JSON
 
-Herramienta Python con interfaz web para gestionar tus playlists:
+Aplicación web local (Flask) para convertir playlists exportadas desde [exportify.app](https://exportify.app/) (CSV de Spotify) al formato JSON que usa [Nuclear Player](https://nuclearplayer.com/), y gestionarlas después desde el navegador.
 
-- 📥 **Convertir** CSVs de Exportify (Spotify) al formato JSON de Nuclear Player
-- ✏️ **Editar** playlists: renombrar, añadir/eliminar canciones, reordenar con drag & drop
-- 🔀 **Combinar** varias playlists en una nueva (con o sin deduplicación)
-- 💾 **Guardar** con el mismo nombre o como nueva playlist
-- 📦 **Respaldos** automáticos antes de cada modificación, con opción de restaurar
-- 🎨 Interfaz web oscura y responsive en español
+## Características
 
----
-
-## Requisitos
-
-- Python 3.9+
-- Flask (se instala automáticamente)
-
-## Instalación y ejecución
-
-```bash
-cd playlist_manager
-python3 -m venv venv
-source venv/bin/activate          # en Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-python app.py
-```
-
-Luego abre tu navegador en: **http://127.0.0.1:5000**
-
-## Uso
-
-### 1. Importar CSVs desde Exportify
-
-1. Ve a https://exportify.app/ y exporta tus playlists como CSV
-2. En la pestaña **Playlists**, arrastra uno o varios CSVs a la zona de upload
-3. Marca las opciones deseadas:
-   - **Backup automático**: si la playlist ya existe, se guarda una copia en `backups/` antes de sobrescribirla
-   - **Sobrescribir**: si existe, la reemplaza (en lugar de crear `_1.json`, `_2.json`, etc.)
-4. Pulsa "Convertir a JSON" — se crean los archivos en `playlists/` con el formato Nuclear
-
-### 2. Editar una playlist
-
-- Click en **✏️ Editar** en cualquier playlist
-- Cambia el nombre en el campo superior
-- Añade canciones con **＋ Añadir canción**
-- Elimina canciones con el botón 🗑️
-- Reordena arrastrando las filas (aparecerá el botón "Guardar nuevo orden")
-- Pulsa **💾 Guardar**:
-  - Puedes cambiar el nombre
-  - Puedes marcar **Guardar como nueva playlist** (no toca la original)
-  - Puedes marcar **Crear respaldo** (recomendado)
-
-### 3. Combinar playlists
-
-- Ve a la pestaña **Combinar**
-- Marca las playlists que quieres unir (mínimo 2)
-- Pon nombre a la nueva playlist combinada
-- Marca **Eliminar duplicados** si no quieres canciones repetidas (mismo nombre + artista)
-- Pulsa "Combinar"
-- Las playlists originales **no se modifican**
-
-### 4. Respaldos
-
-- En la pestaña **Respaldos** verás todos los backups con timestamp
-- **Restaurar**: copia el backup sobre una playlist existente (haciendo backup del estado actual antes)
-- **Descargar**: descarga el backup como archivo JSON
-- **Eliminar**: borra el backup permanentemente
-
-### 5. Importar a Nuclear Player
-
-Una vez tienes tus JSONs en `playlists/`:
-
-**Opción A — Copiar manualmente** (más fiable):
-1. Cierra Nuclear Player
-2. Copia los `.json` de `playlists/` a la carpeta de playlists de Nuclear:
-   - Linux: `~/.config/Nuclear/playlists/`
-   - Windows: `%APPDATA%\Nuclear\playlists\`
-   - macOS: `~/Library/Application Support/Nuclear/playlists/`
-3. Abre Nuclear — tus playlists aparecerán en la sección de playlists
-
-**Opción B — Descargar y usar "Import Playlist"** en Nuclear si la versión lo soporta.
-
-> Nota: Nuclear buscará cada canción en los proveedores configurados (YouTube, SoundCloud, etc.) cuando la reproduzcas. Si tu JSON incluye `spotify_id`, Nuclear puede usarlo para hacer búsquedas más precisas.
-
----
+- **Conversión CSV → JSON** con detección robusta de columnas (Exportify cambia nombres entre versiones).
+- **Editor web** para renombrar la playlist, agregar o eliminar canciones, y reordenar arrastrando.
+- **Combinar varias playlists** en una nueva (con opción de eliminar duplicados).
+- **Guardar como** nueva playlist o sobrescribir la actual.
+- **Backups automáticos** en la carpeta `backups/` antes de cualquier sobrescritura o eliminación.
+- **Restaurar respaldos** con un clic (siempre hace un backup del estado actual antes).
+- **Descargar JSON** listo para importar en Nuclear Player.
 
 ## Estructura del proyecto
 
 ```
-playlist_manager/
-├── app.py                    # Servidor Flask con todos los endpoints
-├── playlist_converter.py     # Lógica de conversión CSV ↔ JSON + backups + merge
-├── requirements.txt
-├── templates/                # Plantillas HTML
+test-CSV-a-JSON/
+├── app.py                    # Servidor Flask (rutas + API)
+├── playlist_converter.py     # Lógica de conversión CSV<->JSON y backups
+├── requirements.txt          # Dependencias (Flask, Werkzeug)
+├── run.bat                   # Lanzador para Windows
+├── sample_playlist.csv       # CSV de ejemplo (9 canciones)
+├── README.md
+├── templates/                # HTML con sintaxis Jinja2
 │   ├── base.html
-│   ├── index.html            # Lista de playlists + upload CSV
-│   ├── edit.html             # Editor de playlist
-│   ├── merge.html            # Combinar playlists
-│   ├── backups.html          # Respaldos
+│   ├── index.html
+│   ├── edit.html
+│   ├── merge.html
+│   ├── backups.html
 │   └── error.html
 ├── static/
-│   ├── css/style.css         # Estilos (tema oscuro)
+│   ├── css/style.css
 │   └── js/
-│       ├── app.js            # Utils compartidos
-│       ├── index.js
-│       ├── edit.js
-│       ├── merge.js
-│       └── backups.js
-├── uploads/                  # CSVs subidos (temporales)
-├── playlists/                # JSONs convertidos (formato Nuclear)
-└── backups/                  # Respaldos con timestamp
+│       ├── app.js            # utilidades compartidas
+│       ├── index.js          # lógica de la home
+│       ├── edit.js           # lógica del editor
+│       ├── merge.js          # lógica de combinar
+│       └── backups.js        # lógica de respaldos
+├── uploads/                  # CSVs subidos (runtime)
+├── playlists/                # JSON convertidos (runtime)
+└── backups/                  # Respaldo automáticos (runtime)
 ```
 
+> ⚠️ **Importante**: Los HTML que usan `{{ url_for('static', ...) }}` o `{% extends %}` DEBEN estar en `templates/`, y los CSS/JS DEBEN estar en `static/css/` y `static/js/`. Si los dejas en la raíz, Flask no los encuentra y la página se ve en blanco — ese era el bug de la versión anterior.
+
+## Instalación y uso (Windows)
+
+1. **Instala Python 3.10+** desde https://www.python.org/downloads/ (marca "Add Python to PATH").
+2. **Descarga este proyecto** y descomprímelo en una carpeta.
+3. **Doble clic en `run.bat`**. La primera vez tarda un poco porque crea un entorno virtual e instala dependencias.
+4. Se abre automáticamente el servidor. Abre `http://127.0.0.1:5000` en el navegador.
+5. Para detener: cierra la ventana negra o pulsa `Ctrl+C`.
+
+## Cómo exportar tus playlists de Spotify
+
+1. Entra a https://exportify.app/
+2. Inicia sesión con tu cuenta de Spotify.
+3. Selecciona las playlists que quieras exportar y descarga los CSV.
+4. En Playlist Manager, ve a la home y arrastra los CSV a la zona de subida.
+5. Pulsa "Convertir a JSON".
+6. Cuando termines, descarga los JSON desde la tarjeta de cada playlist (botón ⬇️ Descargar).
+
+## Cómo importar a Nuclear Player
+
+1. Abre Nuclear Player.
+2. Ve a **Playlists** (barra lateral).
+3. Pulsa el botón de importar (símbolo `+` o "Import playlist" según versión).
+4. Selecciona el archivo `.json` que descargaste desde Playlist Manager.
+5. La playlist aparecerá con todas sus canciones; Nuclear intentará buscar cada canción en los proveedores de streaming que tengas configurados.
+
+## Uso desde línea de comandos (sin interfaz web)
+
+Si solo quieres convertir un CSV a JSON sin abrir el navegador:
+
+```bash
+python playlist_converter.py mi_playlist.csv -o salida.json -n "Mi Playlist"
+```
+
+## Diagnóstico de problemas
+
+### La página web se ve en blanco / no carga
+
+Causa casi segura: los HTML no están en `templates/` o los CSS/JS no están en `static/`. Verifica la estructura mostrada arriba. Si clonaste el repo viejo, los archivos están sueltos en la raíz — solo muévelos:
+
+```
+mkdir templates static\css static\js
+move *.html templates\
+move style.css static\css\
+move *.js static\js\
+```
+
+### El puerto 5000 está ocupado
+
+El `app.py` ahora prueba automáticamente puertos del 5000 al 5010 y usa el primero libre. Mira la consola para ver qué puerto eligió.
+
+### `python` o `py` no se reconoce
+
+Instala Python desde https://www.python.org/downloads/ y **marca "Add Python to PATH"** durante la instalación. Cierra y vuelve a abrir la consola.
+
+### El CSV no se convierte (0 tracks)
+
+Abre el CSV con un editor de texto (no Excel) y verifica que la primera fila tenga cabeceras como `Track Name`, `Artist Name(s)`, `Album Name`, `Duration (ms)`. El conversor es robusto con variaciones de nombre, pero si los campos faltan por completo no hay nada que convertir.
+
+### Health check
+
+Abre `http://127.0.0.1:5000/api/health` para ver el estado del servidor y las carpetas que está usando.
+
+## API REST
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET    | `/api/playlists` | Lista playlists convertidas |
+| GET    | `/api/playlists/<filename>` | Detalle de una playlist |
+| POST   | `/api/upload-csv` | Sube CSVs (multipart) |
+| PUT    | `/api/playlists/<filename>` | Guarda cambios (renombrar, tracks, save_as_new) |
+| DELETE | `/api/playlists/<filename>` | Elimina playlist (con backup) |
+| POST   | `/api/playlists/<filename>/add-track` | Añade canción |
+| DELETE | `/api/playlists/<filename>/remove-track/<uuid>` | Elimina canción |
+| POST   | `/api/playlists/<filename>/reorder` | Reordena canciones |
+| POST   | `/api/merge` | Combina varias playlists |
+| GET    | `/api/backups` | Lista respaldos |
+| GET    | `/api/backups/<filename>` | Descarga respaldo |
+| POST   | `/api/backups/<filename>/restore` | Restaura respaldo |
+| DELETE | `/api/backups/<filename>` | Elimina respaldo |
+| GET    | `/api/download/<filename>` | Descarga playlist JSON |
+| GET    | `/api/health` | Estado del servidor |
+
 ## Formato Nuclear Player (JSON)
+
+El JSON que produce esta herramienta sigue este esquema:
 
 ```json
 {
@@ -125,50 +140,18 @@ playlist_manager/
       "name": "Canción",
       "artist": { "name": "Artista" },
       "album": "Álbum",
-      "duration": 240,
+      "duration": 354,
       "position": 0,
-      "thumbnail": "https://...",
-      "stream": {
-        "source": "spotify",
-        "id": "spotify_track_id"
-      }
+      "thumbnail": "",
+      "stream": { "source": "", "id": "" }
     }
   ],
-  "createdAt": "2026-01-01T00:00:00Z"
+  "createdAt": "2024-01-15T10:30:00.000000Z"
 }
 ```
 
-## Uso del conversor desde CLI (sin interfaz web)
+Si tu versión de Nuclear espera campos distintos, edita `playlist_converter.py::to_nuclear_track` y `build_nuclear_playlist`.
 
-Si solo quieres convertir un CSV a JSON rápidamente:
+## Licencia
 
-```bash
-python playlist_converter.py mi_playlist.csv -o playlists/mi_playlist.json -n "Mi Playlist"
-```
-
-## Endpoints de la API
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET    | `/api/playlists` | Lista todas las playlists |
-| GET    | `/api/playlists/<file>` | Obtiene una playlist por nombre de archivo |
-| POST   | `/api/upload-csv` | Sube y convierte CSVs (`multipart/form-data`, campo `files`) |
-| PUT    | `/api/playlists/<file>` | Actualiza (renombrar, editar tracks, guardar como nuevo) |
-| DELETE | `/api/playlists/<file>` | Elimina playlist (con backup opcional) |
-| POST   | `/api/playlists/<file>/add-track` | Añade una canción |
-| DELETE | `/api/playlists/<file>/remove-track/<uuid>` | Elimina una canción |
-| POST   | `/api/playlists/<file>/reorder` | Reordena tracks (lista de UUIDs) |
-| POST   | `/api/merge` | Combina varias playlists |
-| GET    | `/api/backups` | Lista respaldos |
-| GET    | `/api/backups/<file>` | Descarga un backup |
-| POST   | `/api/backups/<file>/restore` | Restaura un backup sobre una playlist |
-| DELETE | `/api/backups/<file>` | Elimina un backup |
-| GET    | `/api/download/<file>` | Descarga una playlist |
-
-## Notas
-
-- Los CSVs de Exportify con delimitador `,` o `;` se detectan automáticamente
-- Las columnas se reconocen por varios alias posibles (`Track Name`, `track_name`, etc.)
-- La duración de Spotify (en ms) se convierte a segundos para Nuclear
-- El `spotify_id` se conserva en el campo `stream` para que Nuclear pueda buscarlo
-- Cada vez que se edita, elimina o sobrescribe una playlist, se crea un backup con timestamp en `backups/`
+MIT.
