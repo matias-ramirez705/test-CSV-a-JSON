@@ -73,15 +73,87 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _safe_playlist_filename(filename: str) -> str:
+    """
+    Sanea un nombre de archivo preservando caracteres Unicode (acentos, ñ, etc.).
+
+    A diferencia de werkzeug.secure_filename (que ELIMINA los no-ASCII),
+    esta función:
+      - Toma sólo el basename (descarta cualquier directorio)
+      - Bloquea '.' y '..' aislados (path traversal)
+      - Bloquea caracteres Windows-ilégales: <>:"/\\|?*
+      - Reemplaza espacios por '_' (más limpio para URLs)
+      - Conserva acentos, ñ, ü, etc.
+    """
+    # Tomar sólo el basename (descarta rutas)
+    name = os.path.basename(filename.strip().lstrip("/").lstrip("\\"))
+
+    # Bloquear path traversal explícito
+    if name in (".", "..", ""):
+        raise ValueError("Nombre de archivo inválido")
+
+    # Eliminar caracteres Windows-ilégales y puntos al inicio
+    illegal = '<>:"/\\|?*'
+    name = "".join("_" if ch in illegal else ch for ch in name)
+    name = name.lstrip(".")
+
+    # Reemplazar espacios por '_' (mejor para URLs y nombres consistentes)
+    name = name.replace(" ", "_")
+
+    # Eliminar guiones bajos duplicados que se hayan podido generar
+    while "__" in name:
+        name = name.replace("__", "_")
+    name = name.strip("._")
+
+    if not name:
+        raise ValueError("Nombre de archivo inválido")
+
+    # Asegurar extensión .json
+    if not name.lower().endswith(".json"):
+        name += ".json"
+
+    return name
+
+
 def _playlist_path(filename: str) -> Path:
-    """Devuelve la ruta absoluta de una playlist, validando que esté en PLAYLISTS_DIR."""
-    safe = secure_filename(filename)
-    if not safe.endswith(".json"):
-        safe += ".json"
-    p = (PLAYLISTS_DIR / safe).resolve()
-    if not str(p).startswith(str(PLAYLISTS_DIR.resolve())):
+    """
+    Devuelve la ruta absoluta de una playlist, validando que esté en PLAYLISTS_DIR.
+
+    Estrategia:
+      1. Tomar sólo el basename (descarta cualquier directorio).
+      2. Si existe un archivo con ese nombre exacto en PLAYLISTS_DIR, usarlo.
+      3. Si no, sanitizar (reemplazar espacios, chars ilegales) y probar de nuevo.
+      4. Si tampoco existe, devolver la ruta sanitizada (para que el caller
+         pueda generar un 404 consistente).
+    """
+    playlists_real = PLAYLISTS_DIR.resolve()
+
+    # Tomar sólo el basename
+    raw = os.path.basename((filename or "").strip().lstrip("/").lstrip("\\"))
+    if raw in (".", "..", ""):
+        raise ValueError("Nombre de archivo inválido")
+
+    # Caso 1: el archivo existe tal cual en PLAYLISTS_DIR
+    direct = (PLAYLISTS_DIR / raw).resolve()
+    try:
+        direct.relative_to(playlists_real)
+    except ValueError:
         raise ValueError("Ruta inválida")
-    return p
+    if direct.exists() and direct.is_file():
+        return direct
+
+    # Caso 2: sanitizar y volver a probar
+    safe = _safe_playlist_filename(raw)
+    sanitized = (PLAYLISTS_DIR / safe).resolve()
+    try:
+        sanitized.relative_to(playlists_real)
+    except ValueError:
+        raise ValueError("Ruta inválida")
+    if sanitized.exists() and sanitized.is_file():
+        return sanitized
+
+    # Caso 3: no existe — devolver la ruta sanitizada para un 404 consistente
+    return sanitized
 
 
 def _format_duration_ms(ms: int) -> str:
@@ -279,7 +351,18 @@ def api_upload_csv():
 
     results = []
     for f in files:
-        filename = secure_filename(f.filename or "")
+        # Preservar acentos/ñ en el nombre del CSV (werkzeug.secure_filename los elimina)
+        raw_name = os.path.basename((f.filename or "").strip().lstrip("/").lstrip("\\"))
+        # Quitar caracteres Windows-ilégales pero conservar Unicode
+        illegal = '<>:"/\\|?*'
+        filename = "".join("_" if ch in illegal else ch for ch in raw_name).lstrip(".")
+        # Reemplazar espacios por _
+        filename = filename.replace(" ", "_")
+        while "__" in filename:
+            filename = filename.replace("__", "_")
+        filename = filename.strip("._")
+        if not filename:
+            filename = "playlist.csv"
         if not filename.lower().endswith(".csv"):
             results.append({"file": filename, "status": "skipped", "reason": "No es CSV"})
             continue
@@ -706,21 +789,48 @@ def api_list_backups():
     return jsonify({"backups": backups})
 
 
+def _backup_path(filename: str) -> Path:
+    """Igual que _playlist_path pero para la carpeta backups/."""
+    backups_real = BACKUPS_DIR.resolve()
+    raw = os.path.basename((filename or "").strip().lstrip("/").lstrip("\\"))
+    if raw in (".", "..", ""):
+        raise ValueError("Nombre de archivo inválido")
+
+    # Caso 1: el archivo existe tal cual
+    direct = (BACKUPS_DIR / raw).resolve()
+    try:
+        direct.relative_to(backups_real)
+    except ValueError:
+        raise ValueError("Ruta inválida")
+    if direct.exists() and direct.is_file():
+        return direct
+
+    # Caso 2: sanitizar
+    safe = _safe_playlist_filename(raw)
+    sanitized = (BACKUPS_DIR / safe).resolve()
+    try:
+        sanitized.relative_to(backups_real)
+    except ValueError:
+        raise ValueError("Ruta inválida")
+    return sanitized
+
+
 @app.route("/api/backups/<path:filename>", methods=["GET"])
 def api_download_backup(filename: str):
-    safe = secure_filename(filename)
-    p = BACKUPS_DIR / safe
+    try:
+        p = _backup_path(filename)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     if not p.exists():
         return jsonify({"error": "Backup no encontrado"}), 404
-    return send_file(str(p), as_attachment=True, download_name=safe)
+    return send_file(str(p), as_attachment=True, download_name=p.name)
 
 
 @app.route("/api/backups/<path:filename>/restore", methods=["POST"])
 def api_restore_backup(filename: str):
     """Restaura un backup sobre una playlist destino."""
     try:
-        safe = secure_filename(filename)
-        bp = BACKUPS_DIR / safe
+        bp = _backup_path(filename)
         if not bp.exists():
             return jsonify({"error": "Backup no encontrado"}), 404
 
@@ -748,8 +858,10 @@ def api_restore_backup(filename: str):
 
 @app.route("/api/backups/<path:filename>", methods=["DELETE"])
 def api_delete_backup(filename: str):
-    safe = secure_filename(filename)
-    p = BACKUPS_DIR / safe
+    try:
+        p = _backup_path(filename)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     if not p.exists():
         return jsonify({"error": "Backup no encontrado"}), 404
     p.unlink()
